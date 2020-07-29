@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Assignment 3</title>
+
+        <link rel="stylesheet" href="../style/bootstrap.min.css">
+
+        <script type="text/javascript" src="../source/Common/webgl-utils.js"></script>
+        <script type="text/javascript" src="../source/Common/initShaders.js"></script>
+        <script type="text/javascript" src="../source/Common/MV.js"></script>
+        <script type="text/javascript" src="../source/main.js"></script>
+        <script type="text/javascript" src="../source/shape.js"></script>
+        <script type="text/javascript" src="../source/hyperboloid.js"></script>
+        <script type="text/javascript" src="../source/toroid.js"></script>
+        <script type="text/javascript" src="../source/camera.js"></script>
+        <script type="text/javascript" src="../source/world.js"></script>
+        <script type="text/javascript" src="../source/uI.js"></script>
+
+        <script id="phong-vertex-shader" type="x-shader/x-vertex">
+
+        attribute vec4 vPosition;
+        attribute vec4 vNormal;
+        attribute vec2 vTexCoordinates;
+
+        varying vec3 N;
+        varying vec3 L;
+        varying vec3 E;
+        varying vec2 fTexCoordinates;
+        varying vec3 R;
+
+        uniform mat4 viewMatrix;
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+        uniform vec4 lightPosition;
+
+        void main()
+        {
+            vec3 light = (viewMatrix * lightPosition).xyz;;
+            vec3 pos = (modelViewMatrix * vPosition).xyz;
+            if(lightPosition.w == 0.0)
+                L = normalize(light);
+            else
+                L = normalize( light - pos );
+
+            E =  -normalize(pos);
+            N = normalize( mat3(modelViewMatrix)*vNormal.xyz);
+            gl_Position = projectionMatrix * modelViewMatrix * vPosition;
+
+            fTexCoordinates = vTexCoordinates;
+            R = reflect(pos, N);
+        }
+        </script>
+
+        <script id="phong-fragment-shader" type="x-shader/x-fragment">
+
+        precision mediump float;
+
+        uniform vec4 ambientProduct;
+        uniform vec4 diffuseProduct;
+        uniform vec4 specularProduct;
+        uniform float shininess;
+
+        uniform sampler2D tex;
+        uniform bool textured;
+
+        uniform bool environmentMapped;
+        uniform samplerCube environmentMap;
+
+        varying vec3 N;
+        varying vec3 L;
+        varying vec3 E;
+        varying vec2 fTexCoordinates;
+        varying vec3 R;
+
+        void main()
+        {
+            vec4 fColor;
+
+            vec3 H = normalize( L + E );
+            vec4 ambient = ambientProduct;
+
+            float Kd = max( dot(L, N), 0.0 );
+            vec4  diffuse = Kd*diffuseProduct;
+
+            float Ks = pow( max(dot(N, H), 0.0), shininess );
+            vec4  specular = Ks * specularProduct;
+
+            if( dot(L, N) < 0.0 ) specular = vec4(0.0, 0.0, 0.0, 1.0);
+
+            fColor = ambient + diffuse + specular;
+            fColor.a = 1.0;
+
+            if (textured)
+                gl_FragColor = fColor * texture2D(tex, fTexCoordinates);
+            else if (environmentMapped)
+                gl_FragColor = fColor * textureCube(environmentMap, R);
+            else
+                gl_FragColor = fColor;
+        }
+        </script>
+
+        <script id="gouraud-vertex-shader" type="x-shader/x-vertex">
+
+        attribute vec4 vPosition;
+        attribute vec4 vNormal;
+        attribute vec2 vTexCoordinates;
+
+        uniform mat4 viewMatrix;
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+
+        uniform vec4 ambientProduct;
+        uniform vec4 diffuseProduct;
+        uniform vec4 specularProduct;
+
+        uniform vec4 lightPosition;
+        uniform float shininess;
+
+        varying vec4 fColor;
+        varying vec2 fTexCoordinates;
+        varying vec3 R;
+
+        void main()
+        {
+            vec3 pos = (modelViewMatrix * vPosition).xyz;
+            vec3 light = (viewMatrix * lightPosition).xyz;
+            vec3 L;
+
+            // check for directional light
+
+            if(lightPosition.w == 0.0) L = normalize(light);
+            else L = normalize( light - pos );
+
+            vec3 E = -normalize( pos );
+            vec3 H = normalize( L + E );
+
+            // Transform vertex normal into eye coordinates
+
+
+            vec3 N = normalize( mat3(modelViewMatrix)*vNormal.xyz);
+
+            // Compute terms in the illumination equation
+            vec4 ambient = ambientProduct;
+
+            float Kd = max( dot(L, N), 0.0 );
+            vec4  diffuse = Kd*diffuseProduct;
+
+            float Ks = pow( max(dot(N, H), 0.0), shininess );
+            vec4  specular = Ks * specularProduct;
+
+            if( dot(L, N) < 0.0 ) {
+            specular = vec4(0.0, 0.0, 0.0, 1.0);
+            }
+
+            gl_Position = projectionMatrix * modelViewMatrix * vPosition;
+
+            fColor = ambient + diffuse +specular;
+
+            fColor.a = 1.0;
+
+            fTexCoordinates = vTexCoordinates;
+
+            R = reflect(pos, N);
+        }
+        </script>
+
+        <script id="gouraud-fragment-shader" type="x-shader/x-fragment">
+
+        precision mediump float;
+
+        uniform sampler2D tex;
+        uniform bool textured;
+
+        uniform bool environmentMapped;
+        uniform samplerCube environmentMap;
+
+        varying vec4 fColor;
+        varying vec2 fTexCoordinates;
+        varying vec3 R;
+
+        void main()
+        {
+            if (textured)
+                gl_FragColor = fColor * texture2D(tex, fTexCoordinates);
+            else if (environmentMapped)
+                gl_FragColor = fColor * textureCube(environmentMap, R);
+            else
+                gl_FragColor = fColor;
+        }
+
+        </script>
+
+        <script id="wireframe-vertex-shader" type="x-shader/x-vertex">
+
+        attribute  vec4 vPosition;
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+
+        void main()
+        {
+            gl_Position = projectionMatrix * modelViewMatrix * vPosition;
+        }
+        </script>
+
+        <script id="wireframe-fragment-shader" type="x-shader/x-fragment">
+
+        precision mediump float;
+
+        void main()
+        {
+            gl_FragColor = vec4(0.26, 0.22, 0.9, 1.0);
+
+        }
+        </script>
+
+        <script id="grid-vertex-shader" type="x-shader/x-vertex">
+
+        attribute  vec4 vPosition;
+
+        uniform mat4 viewProjectionMatrix;
+
+        void main()
+        {
+            gl_Position = viewProjectionMatrix * vPosition;
+        }
+        </script>
+
+            <script id="grid-fragment-shader" type="x-shader/x-fragment">
+
+        precision mediump float;
+
+        void main()
+        {
+            gl_FragColor = vec4(0.35, 0.35, 0.6, 1.0);
+
+        }
+        </script>
+
+        <script id="light-vertex-shader" type="x-shader/x-vertex">
+
+        uniform vec4 vPosition;
+        uniform vec4 vColor;
+
+        varying vec4 fColor;
+
+        uniform mat4 viewProjectionMatrix;
+
+        void main()
+        {
+            gl_Position = viewProjectionMatrix * vPosition;
+
+            fColor = vColor;
+
+            gl_PointSize = 20.0;
+        }
+        </script>
+
+        <script id="light-fragment-shader" type="x-shader/x-fragment">
+
+        precision mediump float;
+
+        varying vec4 fColor;
+
+        void main()
+        {
+            gl_FragColor = fColor;
+
+        }
+        </script>
+    </head>
+    <body>
+        <div class="row" style="margin: 10px;">
+            <div class="col-lg-6">
+                <canvas id="canvas" width="700" height="700">
+                    Oops ... your browser doesn't support the HTML5 canvas element
+                </canvas>
+            </div>
+            <div class="col-lg-6" style="border-width: 1px; border-style: solid;">
+                <div>
+                    <form id="renderMode">
+                        <b>Render Mode:</b><br>
+                        <label> <input type="radio" name="mode" value="0" checked> Wireframe </label>
+                        <label> <input type="radio" name="mode" value="1"> Gouraud Shaded </label>
+                        <label> <input type="radio" name="mode" value="2"> Phong Shaded </label>
+                        &nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp<label> <input type="checkbox" name="texture" id="texture"> Texture </label>
+                        &nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp<label> <input type="checkbox" name="texture" id="envMap"> Environment Map </label>
+                    </form>
+                </div>
+                <div>
+                    <select id="shapeSelect" size = "2" style="width: 110px;">
+                        <option value="0">Toroid</option>
+                        <option value="1">Hyperboloid</option>
+                    </select>
+                    <input type="button" id="addShapeButton" value="Add Shape">
+                    <input type="button" id="resetParamButton" value="Reset Parameters">
+                    <select id="envSelect" class="float-lg-right" size = "2" style="width: 170px; margin-right: 40px">
+                        <option value="0" selected>Environment Map 1</option>
+                        <option value="1">Environment Map 2</option>
+                    </select>
+                </div>
+
+                <div class="row col-lg-12">
+                    <div class="row col-lg-12">
+                        <b><u>Options:</u></b>
+                    </div>
+
+                    <div class="row col-lg-12" style="margin: 10px 0 0;">
+                        <div class="row col-lg-12">
+                            Light:
+                        </div>
+                        <div class="row col-lg-12">
+                            light&nbspambient&nbsp=&nbsp<input type="color" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" id="lightAmbient" value="#404040">
+                            &nbsplight&nbspspecular&nbsp=&nbsp<input type="color" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" id="lightSpecular" value="#ffffff">
+                            &nbsplight&nbspdiffuse&nbsp=&nbsp<input type="color" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" id="lightDiffuse" value="#ffffff">
+                        </div>
+                        <div class="row col-lg-12">
+                            Light Position:&nbsp&nbsp
+                            x&nbsp=&nbsp<input id="lightX" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" step="1" value="0">
+                            &nbspy&nbsp=&nbsp<input id="lightY" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" step="1" value="20">
+                            &nbspz&nbsp=&nbsp<input id="lightZ" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" step="1" value="0">
+                        </div>
+                    </div>
+
+                    <div class="row col-lg-12" style="margin: 10px 0 0;">
+                        <div class="row col-lg-12">
+                            Object:
+                        </div>
+                        w&nbspdivision&nbsp=&nbsp<input id="wDivisionRange" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" min="3" max="256" step="1" value="32">
+                        &nbspn&nbspdivision&nbsp=&nbsp<input id="nDivisionRange" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" min="3" max="256" step="1" value="32">
+                    </div>
+
+                    <div class="row col-lg-12" style="margin: 10px 0 0;">
+                        a1&nbsp=&nbsp<input id="a1Range" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" min="0" max="50" step="0.1" value="3">
+                        &nbspa2&nbsp=&nbsp<input id="a2Range" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" min="0" max="50" step="0.1" value="3">
+                        &nbspa3&nbsp=&nbsp<input id="a3Range" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" min="0" max="50" step="0.1" value="3">
+                        &nbspradius&nbsp=&nbsp<input id="radiusRange" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" min="2" max=50" step="0.1" value="8">
+                        &nbspe1&nbsp=&nbsp<input id="e1Range" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" min="0" max="20" step="0.1" value="1">
+                        &nbspe2&nbsp=&nbsp<input id="e2Range" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" min="0" max="20" step="0.1" value="1">
+                    </div>
+
+                    <div class="row col-lg-12" style="margin: 10px 0 0;">
+                        Translation:&nbsp&nbsp
+                        x&nbsp=&nbsp<input id="translateX" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" step="1" value="0">
+                        &nbspy&nbsp=&nbsp<input id="translateY" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" step="1" value="0">
+                        &nbspz&nbsp=&nbsp<input id="translateZ" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" step="1" value="0">
+                    </div>
+
+                    <div class="row col-lg-12" style="margin: 10px 0 0;">
+                        Rotation:&nbsp&nbsp
+                        pitch&nbsp=&nbsp<input id="rotatePitch" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" step="1" value="0">
+                        &nbspyaw&nbsp=&nbsp<input id="rotateYaw" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" step="1" value="0">
+                        &nbsproll&nbsp=&nbsp<input id="rotateRoll" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" type="number" step="1" value="0">
+                    </div>
+                </div>
+
+                <div class="row col-lg-12">
+                    <div class="row col-lg-12">
+                        <div class="col-lg-6">
+                            <div class="row col-lg-12">
+                                Material:
+                            </div>
+                            <div class="row col-lg-12">
+                                &nbsp&nbspmaterial&nbspambient&nbsp=&nbsp<input id="materialAmbient" type="color" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" value="#CCCCCC">
+                                &nbsp&nbspmaterial&nbspspecular&nbsp=&nbsp<input id="materialSpecular" type="color" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" value="#CCCCCC">
+                                &nbsp&nbspmaterial&nbspdiffuse&nbsp&nbsp&nbsp=&nbsp<input id="materialDiffuse" type="color" class="form-control col-lg-1" style="padding: 0px 0px; height: 26px;" value="#808080">
+                                &nbsp&nbspmaterial&nbspshininess&nbsp=&nbsp<input id="materialShininess" class="form-control col-lg-4" style="padding: 0px 0px; height: 26px;" type="number"min="1" max="1000" step="1" value="20" >
+                            </div>
+                            <div class="row col-lg-12" style="margin: 10px 0 0;">
+                                <div class="row col-lg-12">
+                                    Texture List:
+                                </div>
+                                <div class="row col-lg-12" style="margin: 10px 0 0;">
+                                    <select id="textureList" size = "6" style="width: 200px;">
+                                        <option value="0" selected>None</option>
+                                        <option value="1">Texture 1</option>
+                                        <option value="2">Texture 2</option>
+                                        <option value="3">Texture 3</option>
+                                        <option value="4">Texture 4</option>
+                                        <option value="5">Texture 5</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-6">
+                            <div class="row col-lg-12">
+                                <b><u>Shape List:</u></b>
+                                &nbsp&nbsp&nbsp<input type="button" id="deleteShapeButton" value="Delete Shape">
+                            </div>
+                            <div class="row col-lg-12" style="margin: 10px 0 0;">
+                                <select id="shapeList" size = "15" style="width: 200px;"></select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div>
+            <img id = "texture1" src = "../textures/tex1.jpg" hidden>
+            <img id = "texture2" src = "../textures/tex2.png" hidden>
+            <img id = "texture3" src = "../textures/tex3.jpg" hidden>
+            <img id = "texture4" src = "../textures/tex4.jpg" hidden>
+            <img id = "texture5" src = "../textures/tex5.jpg" hidden>
+
+
+            <img id = "env_1_p_x" src = "../textures/CubeMap1/px.png" hidden>
+            <img id = "env_1_p_y" src = "../textures/CubeMap1/py.png" hidden>
+            <img id = "env_1_p_z" src = "../textures/CubeMap1/pz.png" hidden>
+            <img id = "env_1_n_x" src = "../textures/CubeMap1/nx.png" hidden>
+            <img id = "env_1_n_y" src = "../textures/CubeMap1/ny.png" hidden>
+            <img id = "env_1_n_z" src = "../textures/CubeMap1/nz.png" hidden>
+
+
+            <img id = "env_2_p_x" src = "../textures/CubeMap2/px.png" hidden>
+            <img id = "env_2_p_y" src = "../textures/CubeMap2/py.png" hidden>
+            <img id = "env_2_p_z" src = "../textures/CubeMap2/pz.png" hidden>
+            <img id = "env_2_n_x" src = "../textures/CubeMap2/nx.png" hidden>
+            <img id = "env_2_n_y" src = "../textures/CubeMap2/ny.png" hidden>
+            <img id = "env_2_n_z" src = "../textures/CubeMap2/nz.png" hidden>
+        </div>
+    </body>
+</html>
